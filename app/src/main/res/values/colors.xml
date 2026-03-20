@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="alarm_red">#FFCC0000</color>
+    <color name="alarm_red_dark">#FF8B0000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="black">#FF000000</color>
+    <color name="primary">#FF1976D2</color>
+    <color name="primary_dark">#FF0D47A1</color>
+    <color name="accent">#FFFF5722</color>
+</resources>
