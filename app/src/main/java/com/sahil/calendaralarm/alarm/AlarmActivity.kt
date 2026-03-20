@@ -1,6 +1,7 @@
 package com.sahil.calendaralarm.alarm
 
 import android.app.KeyguardManager
+import android.app.NotificationManager
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioManager
@@ -68,10 +69,12 @@ class AlarmActivity : ComponentActivity() {
                     calendarName = calendarName,
                     onDismiss = {
                         stopAlarm()
+                        cancelNotification(eventId)
                         finish()
                     },
                     onSnooze = {
                         stopAlarm()
+                        cancelNotification(eventId)
                         snoozeAlarm(eventId, eventTitle, eventDescription, calendarName)
                         finish()
                     }
@@ -85,7 +88,7 @@ class AlarmActivity : ComponentActivity() {
             val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
-            // Force max volume
+            // Force max volume on the alarm stream
             val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
             val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
             audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxVolume, 0)
@@ -130,6 +133,12 @@ class AlarmActivity : ComponentActivity() {
         vibrator = null
     }
 
+    private fun cancelNotification(eventId: Long) {
+        val notificationManager =
+            getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.cancel(eventId.toInt() + AlarmScheduler.NOTIFICATION_ID_OFFSET)
+    }
+
     private fun snoozeAlarm(eventId: Long, title: String, description: String, calendarName: String) {
         val snoozeTime = System.currentTimeMillis() + 5 * 60 * 1000 // 5 minutes
 
@@ -142,15 +151,21 @@ class AlarmActivity : ComponentActivity() {
         }
         val pendingIntent = android.app.PendingIntent.getBroadcast(
             this,
-            (eventId + 100000).toInt(), // different request code for snooze
+            (eventId + 100000).toInt(),
             intent,
             android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
         )
 
+        // Use setAlarmClock for snooze too — guaranteed delivery
+        val showIntent = android.app.PendingIntent.getActivity(
+            this,
+            (eventId + 100000).toInt(),
+            android.content.Intent(this, com.sahil.calendaralarm.MainActivity::class.java),
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
         try {
-            alarmManager.setExactAndAllowWhileIdle(
-                android.app.AlarmManager.RTC_WAKEUP, snoozeTime, pendingIntent
-            )
+            val alarmClockInfo = android.app.AlarmManager.AlarmClockInfo(snoozeTime, showIntent)
+            alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
         } catch (e: SecurityException) {
             alarmManager.setAndAllowWhileIdle(
                 android.app.AlarmManager.RTC_WAKEUP, snoozeTime, pendingIntent

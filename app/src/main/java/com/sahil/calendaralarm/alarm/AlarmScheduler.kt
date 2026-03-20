@@ -4,8 +4,8 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.util.Log
+import com.sahil.calendaralarm.MainActivity
 import com.sahil.calendaralarm.model.CalendarEvent
 
 class AlarmScheduler(private val context: Context) {
@@ -16,6 +16,7 @@ class AlarmScheduler(private val context: Context) {
         const val EXTRA_EVENT_TITLE = "event_title"
         const val EXTRA_EVENT_DESCRIPTION = "event_description"
         const val EXTRA_CALENDAR_NAME = "calendar_name"
+        const val NOTIFICATION_ID_OFFSET = 20000
     }
 
     private val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -23,7 +24,6 @@ class AlarmScheduler(private val context: Context) {
     fun scheduleAlarm(event: CalendarEvent, leadTimeMinutes: Int): Boolean {
         val triggerTime = event.startTime - (leadTimeMinutes * 60 * 1000L)
 
-        // Don't schedule alarms for past events
         if (triggerTime <= System.currentTimeMillis()) {
             return false
         }
@@ -42,31 +42,34 @@ class AlarmScheduler(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        // "Show" intent — shown when user taps alarm icon in status bar
+        val showIntent = PendingIntent.getActivity(
+            context,
+            event.id.toInt(),
+            Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // setAlarmClock is the strongest guarantee: never deferred by Doze,
+        // shows alarm icon in status bar, exempt from all battery restrictions
+        val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerTime, showIntent)
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (alarmManager.canScheduleExactAlarms()) {
-                    alarmManager.setExactAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent
-                    )
-                } else {
-                    // Fallback to inexact alarm
-                    alarmManager.setAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent
-                    )
-                }
-            } else {
-                alarmManager.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent
-                )
-            }
+            alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
             Log.d(TAG, "Scheduled alarm for '${event.title}' at $triggerTime")
             return true
         } catch (e: SecurityException) {
-            Log.e(TAG, "Cannot schedule exact alarm: ${e.message}")
-            alarmManager.setAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent
-            )
-            return true
+            Log.e(TAG, "Cannot schedule alarm clock, falling back: ${e.message}")
+            try {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent
+                )
+                return true
+            } catch (e2: SecurityException) {
+                alarmManager.setAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent
+                )
+                return true
+            }
         }
     }
 
@@ -90,7 +93,7 @@ class AlarmScheduler(private val context: Context) {
         var count = 0
         for (event in events) {
             if (event.id.toString() in mutedEventIds) continue
-            if (event.allDay) continue // skip all-day events
+            if (event.allDay) continue
             if (scheduleAlarm(event, leadTimeMinutes)) {
                 count++
             }
